@@ -109,6 +109,18 @@ function resetTimer() {
     lastAllowedAutoSaveTimestamp = Date.now();
 }
 
+function getCurrentChatLength() {
+    try {
+        const context = window.SillyTavern?.getContext?.();
+        if (Array.isArray(context?.chat)) {
+            return context.chat.length;
+        }
+    } catch (error) {
+        console.warn('[ST-Manual-Saver] Failed to inspect current chat length:', error);
+    }
+    return null;
+}
+
 function bindSettingsEvents() {
     const s = () => getSettings();
     const save = () => saveSettings();
@@ -180,6 +192,24 @@ window.fetch = function(url, options) {
                         throw error;
                     });
                 }
+            }
+
+            // 新会话或空聊天阶段的保存通常只发生一次，放行它能避免开局/跳转流程被拦住。
+            const chatLength = getCurrentChatLength();
+            if (typeof chatLength === 'number' && chatLength <= 1) {
+                console.log('[ST-Manual-Saver] Allowing initial-state chat save request to:', urlString, 'chatLength=', chatLength);
+                return originalFetch.apply(this, arguments).then(response => {
+                    if (response.ok) {
+                        if (window.toastr) window.toastr.success('初始状态保存已放行', 'ST-Manual-Saver');
+                    } else {
+                        if (window.toastr) window.toastr.error(`初始状态保存失败: ${response.statusText}`, 'ST-Manual-Saver');
+                    }
+                    return response;
+                }).catch(error => {
+                    console.error('[ST-Manual-Saver] Initial-state save fetch error:', error);
+                    if (window.toastr) window.toastr.error(`初始状态保存失败: ${error.message}`, 'ST-Manual-Saver');
+                    throw error;
+                });
             }
             
             console.log('[ST-Manual-Saver] Intercepted and blocked automatic chat save request to:', urlString);
